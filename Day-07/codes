@@ -1,1 +1,16 @@
-gl.v
+module glitch(clk,rst,d,q,qr);
+input clk,rst;
+input d;
+output reg q;
+output qr;
+always @(posedge clk)begin
+if(rst)begin
+     q<=1'b0;
+//     qr<=1'b1;
+     end
+ else
+     q<=d;
+ 
+     end
+  assign    qr=~q;
+     endmodule
