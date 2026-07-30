@@ -1,1 +1,47 @@
+module button_debounce(
+    input  wire clk,
+    input  wire rst,
+    input  wire btn_raw,     // raw noisy button input (active-high: 1 = pressed)
 
+    output reg  btn_pulse    // single-cycle clean pulse on press
+);
+
+// ~10ms debounce window at 24MHz = 240,000 cycles
+localparam DEBOUNCE_MAX = 20'd240_000;
+
+reg [19:0] debounce_cnt = 0;
+reg btn_sync0 = 0, btn_sync1 = 0;   // 2-stage synchronizer
+reg btn_stable = 0;
+reg btn_stable_prev = 0;
+
+always @(posedge clk) begin
+    if (rst) begin
+        btn_sync0 <= 0; btn_sync1 <= 0;
+        debounce_cnt <= 0;
+        btn_stable <= 0;
+        btn_stable_prev <= 0;
+        btn_pulse <= 0;
+    end
+    else begin
+        // synchronize raw async input
+        btn_sync0 <= btn_raw;
+        btn_sync1 <= btn_sync0;
+
+        // debounce: only accept a change after it's held stable for DEBOUNCE_MAX cycles
+        if (btn_sync1 != btn_stable) begin
+            if (debounce_cnt == DEBOUNCE_MAX) begin
+                btn_stable   <= btn_sync1;
+                debounce_cnt <= 0;
+            end else
+                debounce_cnt <= debounce_cnt + 1'b1;
+        end else begin
+            debounce_cnt <= 0;
+        end
+
+        // generate a single-cycle pulse on the rising edge of the debounced signal
+        btn_stable_prev <= btn_stable;
+        btn_pulse <= (btn_stable && !btn_stable_prev);
+    end
+end
+
+endmodule
