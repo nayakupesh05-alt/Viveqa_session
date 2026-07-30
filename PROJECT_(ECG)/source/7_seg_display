@@ -1,1 +1,92 @@
+module max7219_driver (
+    input  wire       clk,
+    input  wire       rst,
 
+    input  wire [3:0] digit0,   // Rightmost (Ones)
+    input  wire [3:0] digit1,   // Mid-Right (Tens)
+    input  wire [3:0] digit2,   // Mid-Left  (Ones + DP)
+    input  wire [3:0] digit3,   // Leftmost  (Tens)
+
+    output reg        din,
+    output reg        sclk,
+    output reg        load
+);
+
+    // Clock divider for ~240 kHz SPI clock tick
+    reg [6:0] clk_div;
+    wire tick = (clk_div == 7'd99);
+
+    always @(posedge clk) begin
+        if (rst)
+            clk_div <= 7'd0;
+        else if (tick)
+            clk_div <= 7'd0;
+        else
+            clk_div <= clk_div + 1'b1;
+    end
+
+    reg [5:0]  state;
+    reg [15:0] shift;
+    reg [3:0]  cmd;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            state <= 6'd0;
+            cmd   <= 4'd0;
+            load  <= 1'b1;
+            sclk  <= 1'b0;
+            din   <= 1'b0;
+            shift <= 16'd0;
+        end
+        else if (tick) begin
+            case (state)
+
+                6'd0: begin
+                    load <= 1'b0;
+                    sclk <= 1'b0;
+
+                    case (cmd)
+                        4'd0: shift <= 16'h0F00;                        // Display Test Normal
+                        4'd1: shift <= 16'h0C01;                        // Exit Shutdown Mode
+                        4'd2: shift <= 16'h090F;                        // Code-B Decode Digits 0-3
+                        4'd3: shift <= 16'h0A07;                        // Intensity Level
+                        4'd4: shift <= 16'h0B03;                        // Scan Limit (4 digits)
+                        4'd5: shift <= {8'h01, 4'h0, digit0};           // Digit 0 (Rightmost)
+                        4'd6: shift <= {8'h02, 1'b1, 3'b000, digit1};           // Digit 1
+                        4'd7: shift <= {8'h03, 4'h0, digit2};   // Digit 2 (+ DP Bit 7 set to 1)
+                        4'd8: shift <= {8'h04,4'h0, digit3};           // Digit 3 (Leftmost)
+                        default: shift <= 16'h0C01;
+                    endcase
+                    state <= 6'd1;
+                end
+
+                default: begin
+                    if (state <= 6'd32) begin
+                        if (state[0]) begin
+                            din  <= shift[15];
+                            sclk <= 1'b0;
+                        end
+                        else begin
+                            sclk  <= 1'b1;
+                            shift <= {shift[14:0], 1'b0};
+                        end
+                        state <= state + 1'b1;
+                    end
+                    else begin
+                        load  <= 1'b1;
+                        sclk  <= 1'b0;
+                        state <= 6'd0;
+
+                        if (cmd < 4'd8)
+                            cmd <= cmd + 1'b1;
+                        else
+                            cmd <= 4'd5; // Loop continuously through display updates (Digits 0-3)
+                    end
+                end
+
+          endcase
+        end
+    end
+
+endmodule
+ 
