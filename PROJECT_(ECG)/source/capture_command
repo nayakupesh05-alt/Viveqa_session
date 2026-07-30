@@ -1,1 +1,105 @@
 
+module capture_command(
+    input clk,
+    input rst,
+    input button,
+
+    input tx_busy,
+    input tx_done,
+
+    output reg tx_start,
+    output reg [7:0] tx_data
+);
+
+reg [3:0] state;
+
+always @(posedge clk or posedge rst)
+begin
+    if(rst)
+    begin
+        state <= 0;
+        tx_start <= 0;
+    end
+    else
+    begin
+        tx_start <= 0;
+
+        case(state)
+
+        0: begin
+            if(button) state <= 1;
+        end
+
+        1: begin
+            if(!tx_busy) begin
+                tx_data <= "C";
+                tx_start <= 1;
+                state <= 2;
+            end
+        end
+        2: if(tx_done) state <= 3;
+
+        3: begin
+            if(!tx_busy) begin
+                tx_data <= "A";
+                tx_start <= 1;
+                state <= 4;
+            end
+        end
+        4: if(tx_done) state <= 5;
+
+        5: begin
+            if(!tx_busy) begin
+                tx_data <= "P";
+                tx_start <= 1;
+                state <= 6;
+            end
+        end
+        6: if(tx_done) state <= 7;
+
+        7: begin
+            if(!tx_busy) begin
+                tx_data <= "T";
+                tx_start <= 1;
+                state <= 8;
+            end
+        end
+        8: if(tx_done) state <= 9;
+
+        9: begin
+            if(!tx_busy) begin
+                tx_data <= "U";
+                tx_start <= 1;
+                state <= 10;
+            end
+        end
+        10: if(tx_done) state <= 11;
+
+        11: begin
+            if(!tx_busy) begin
+                tx_data <= "R";
+                tx_start <= 1;
+                state <= 12;
+            end
+        end
+        12: if(tx_done) state <= 13;
+
+        13: begin
+            if(!tx_busy) begin
+                tx_data <= "E";
+                tx_start <= 1;
+                state <= 14;
+            end
+        end
+        14: begin
+            if(tx_done)
+                state <= 0;
+        end
+
+        default: state <= 0;
+
+        endcase
+    end
+end
+
+endmodule
