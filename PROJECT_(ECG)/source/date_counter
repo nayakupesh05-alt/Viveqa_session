@@ -1,1 +1,47 @@
+module date_counter (
+    input  wire       clk,
+    input  wire       rst,
+    input  wire       day_tick,
+    output reg  [3:0] day2,   // Day tens   (2)
+    output reg  [3:0] day1,   // Day ones   (8)
+    output reg  [3:0] month2, // Month tens (0)
+    output reg  [3:0] month1, // Month ones (7)
+    output reg  [3:0] year4, year3, year2, year1
+);
 
+    always @(posedge clk) begin
+        if (rst) begin
+            // Preset directly to Date: 28 / 07 / 2026
+            day2   <= 4'd3;
+            day1   <= 4'd0;
+            month2 <= 4'd0;
+            month1 <= 4'd7;
+            year4  <= 4'd2;
+            year3  <= 4'd0;
+            year2  <= 4'd2;
+            year1  <= 4'd8;
+        end else if (day_tick) begin
+            // Day increment logic
+            if (day2 == 4'd3 && day1 == 4'd1) begin
+                day2 <= 4'd0;
+                day1 <= 4'd1;
+                // Month increment logic
+                if (month2 == 4'd1 && month1 == 4'd2) begin
+                    month2 <= 4'd0;
+                    month1 <= 4'd1;
+                end else if (month1 < 4'd9) begin
+                    month1 <= month1 + 1'b1;
+                end else begin
+                    month1 <= 4'd0;
+                    month2 <= month2 + 1'b1;
+                end
+            end else if (day1 < 4'd9) begin
+                day1 <= day1 + 1'b1;
+            end else begin
+                day1 <= 4'd0;
+                day2 <= day2 + 1'b1;
+            end
+        end
+    end
+
+endmodule
