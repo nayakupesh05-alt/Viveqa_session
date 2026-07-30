@@ -1,1 +1,343 @@
+module top(
+    input clk_24mhz,
+    input rst,
+    input btn,
+    input rx,
+    input   btn_time_raw,
+    input   btn_date_raw,
+    input  wire adc_miso,
+   
+    output din,
+    output sclk,
+    output load,
 
+   
+    output [7:0] noise_leds,
+    
+    output tx,
+    output buzzer,
+    
+    output wire adc_cs,
+    output wire adc_sclk,
+    output wire adc_mosi,
+    
+    
+    
+    
+     output wire lcd_rs,
+       output wire lcd_rw,
+       output wire lcd_en,
+       output wire [7:0] lcd_d
+);
+
+wire tx_start;
+wire [7:0] tx_data;
+wire tx_busy;
+wire tx_done;
+wire heartbeat;
+wire [11:0] ecg_data;
+wire adc_valid;
+wire [2:0]lcd_mode;
+wire [7:0]bpm;
+
+mcp3202_adc adc_inst (
+    .clk(clk_24mhz),
+    .rst(rst),
+
+    .cs_n(adc_cs),
+    .sclk(adc_sclk),
+    .mosi(adc_mosi),
+    .miso(adc_miso),
+
+    .adc_data(ecg_data),
+    .data_valid(adc_valid)
+);
+
+
+
+
+
+
+wire [15:0] rr_interval;
+wire hrv_led;
+
+
+ecg_hrv_detector hrv_inst(
+    .clk(clk_24mhz),
+  .rst(rst),
+    .sample_tick(adc_valid),
+   .ecg_data(ecg_data),
+
+    .rr_interval(rr_interval),
+   
+   .heartbeat(heartbeat),
+   .led(hrv_led)
+);
+
+
+
+
+
+
+
+
+//------------------------------------
+// MAX7219 Display
+//------------------------------------
+
+
+    // Internal Wires - Debounce & Control Signals
+  wire btn_time_pulse, btn_date_pulse;
+        wire day_tick;
+        wire show_date;
+    
+        // Internal Wires - Time Digits
+        wire [3:0] hour1, hour2; // hour2 = Tens, hour1 = Ones
+        wire [3:0] min1,  min2;  // min2  = Tens, min1  = Ones
+        wire [3:0] sec1,  sec2;
+    
+        // Internal Wires - Date Digits
+        wire [3:0] day1,   day2;   
+        wire [3:0] month1, month2; 
+        wire [3:0] year1,  year2, year3, year4;
+    
+        // Intermediate Multiplexed Signals
+        wire [3:0] mux_digit0; 
+        wire [3:0] mux_digit1; 
+        wire [3:0] mux_digit2; 
+        wire [3:0] mux_digit3; 
+    
+        
+        
+        assign mux_digit0 = show_date ? day2   : hour2;  
+        
+        assign mux_digit1 = show_date ? day1   : hour1;  
+        
+        assign mux_digit2 = show_date ? month2 : min2;   
+       
+        assign mux_digit3 = show_date ? month1 : min1;
+    
+        
+        
+        
+        
+        // Debounce Module for TIME Button
+        
+        button_debounce db_time (
+            .clk(clk_24mhz),
+            .rst(rst),
+            .btn_raw(btn_time_raw),
+            .btn_pulse(btn_time_pulse)
+        );
+        
+        
+    
+        // Debounce Module for DATE Button
+        
+        button_debounce db_date (
+            .clk(clk_24mhz),
+            .rst(rst),
+            .btn_raw(btn_date_raw),
+            .btn_pulse(btn_date_pulse)
+        );
+    
+        // Display Select Module
+        
+        display_select disp_sel (
+            .clk(clk_24mhz),
+            .rst(rst),
+            .btn_time(btn_time_pulse),
+            .btn_date(btn_date_pulse),
+            .show_date(show_date)
+        );
+    
+        // Time Counter Module
+        
+        time_counter time_inst (
+            .clk(clk_24mhz),
+            .rst(rst),
+            .hour2(hour2), .hour1(hour1),
+            .min2(min2),   .min1(min1),
+            .sec2(sec2),   .sec1(sec1),
+            .day_tick(day_tick)
+        );
+    
+        // Date Counter Module
+        
+        date_counter date_inst (
+            .clk(clk_24mhz),
+            .rst(rst),
+            .day_tick(day_tick),
+            .day2(day2),     .day1(day1),
+            .month2(month2), .month1(month1),
+            .year4(year4),   .year3(year3), .year2(year2), .year1(year1)
+        );
+    
+        // MAX7219 Display Driver Module
+        
+        max7219_driver display_inst (
+            .clk(clk_24mhz),
+            .rst(rst),
+            .digit0(mux_digit0),
+            .digit1(mux_digit1),
+            .digit2(mux_digit2),
+            .digit3(mux_digit3),
+            .din(din),
+            .sclk(sclk),
+            .load(load)
+        );
+
+
+
+
+
+uart_tx
+#(
+    .CLK_FREQ(24000000),
+    .BAUD_RATE(115200)
+)
+uart_tx_inst(
+    .clk(clk_24mhz),
+    .rst(rst),
+
+    .tx_start(tx_start),
+    .tx_data(tx_data),
+
+    .tx(tx),
+    .tx_busy(tx_busy),
+    .tx_done(tx_done)
+);
+
+
+
+wire uart_tx_start;
+wire [7:0] uart_tx_data;
+wire cap_tx_start;
+wire [7:0] cap_tx_data;
+
+
+
+uart_controller uart_ctrl(
+   .clk(clk_24mhz),
+    .rst(rst),
+   .ecg_data(ecg_data),
+.data_valid(adc_valid),
+    .tx_start(uart_tx_start),
+    .tx_data(uart_tx_data),
+
+    .tx_busy(tx_busy),
+    .tx_done(tx_done)
+);
+
+
+wire capture;
+
+
+button_press u_btn (
+    .clk(clk_24mhz),
+    .rst(rst),
+    .btn(btn),          // FPGA push button input
+    .btn_pulse(capture)
+);
+
+
+
+
+
+
+capture_command u_capture (
+   .clk(clk_24mhz),
+   .rst(rst),
+    .button(capture),
+    .tx_busy(tx_busy),
+    .tx_done(tx_done),     
+    .tx_start(cap_tx_start),
+    .tx_data(cap_tx_data)
+);
+
+assign tx_start = cap_tx_start ? cap_tx_start : uart_tx_start;
+assign tx_data  = cap_tx_start ? cap_tx_data  : uart_tx_data;
+
+
+
+
+wire [7:0] rx_data;
+wire rx_done;
+
+
+
+uart_rx
+#(
+    .CLK_FREQ(24000000),
+    .BAUD_RATE(115200)
+)
+uart_rx_inst(
+    .clk(clk_24mhz),
+    .rst(rst),
+    .rx(rx),
+    .rx_data(rx_data),
+    .rx_done(rx_done)
+);
+
+
+
+lcd_message_controller lcd_msg(
+    .clk(clk_24mhz),
+    .rst(rst),
+
+    .rx_data(rx_data),
+    .rx_done(rx_done),
+
+    .lcd_mode(lcd_mode)
+);
+
+
+
+
+
+
+lcd_driver lcd0 (
+    .clk_24mhz(clk_24mhz),
+    .rst(rst),
+
+    .lcd_mode(lcd_mode),
+
+   
+    .lcd_rs(lcd_rs),
+    .lcd_rw(lcd_rw),
+    .lcd_en(lcd_en),
+    .lcd_d(lcd_d)
+);
+
+
+
+
+
+buzzer_controller buzzer_inst(
+    .clk(clk_24mhz),
+    .rst(rst),
+    .rx_done(rx_done),
+    .rx_data(rx_data),
+    .buzzer(buzzer)
+);
+
+
+
+wire [7:0] noise_level;
+
+
+
+
+    noise_led_driver #(
+        .DATA_WIDTH    (8),
+        .WINDOW_CYCLES (24_000_000/20)
+    ) u_noise_led (
+        .clk          (clk_24mhz),
+        .rst          (rst),
+        .adc_sample   (ecg_data),
+        .sample_valid (adc_valid),
+        .leds         (noise_leds)
+    );
+    
+    
+endmodule
