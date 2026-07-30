@@ -1,1 +1,69 @@
+module buzzer_controller(
+    input wire clk,          // 24 MHz system clock
+    input wire rst,
+    input wire rx_done,
+    input wire [7:0] rx_data,
+    output reg buzzer
+);
 
+// Configuration Parameters
+parameter CLK_FREQ    = 24000000;              // 24 MHz clock
+parameter BUZZ_TIME   = 24000000 * 2;          // 3 seconds duration (72,000,000 cycles)
+parameter TONE_FREQ   = 2700;                  // ~2.7 kHz (optimal resonance for most buzzers)
+parameter PWM_PERIOD  = CLK_FREQ / TONE_FREQ;  // 8888 cycles total period
+parameter PWM_DUTY    = PWM_PERIOD / 2;        // 4444 cycles high time (50% duty cycle)
+
+reg [26:0] duration_counter;
+reg [15:0] pwm_counter;
+reg active;
+
+always @(posedge clk or posedge rst) begin
+    if (rst) begin
+        buzzer           <= 1'b0;
+        duration_counter <= 27'd0;
+        pwm_counter      <= 16'd0;
+        active           <= 1'b0;
+    end
+    else begin
+
+        // Trigger on receiving 'E'
+        if (rx_done && (rx_data == "E")) begin
+            active           <= 1'b1;
+            duration_counter <= 27'd0;
+            pwm_counter      <= 16'd0;
+            buzzer           <= 1'b1;
+        end
+        else if (active) begin
+            
+            // 1. Check overall duration (3 seconds)
+            if (duration_counter < BUZZ_TIME - 1) begin
+                duration_counter <= duration_counter + 1'b1;
+                
+                // 2. Generate PWM Signal
+                if (pwm_counter < PWM_PERIOD - 1) begin
+                    pwm_counter <= pwm_counter + 1'b1;
+                end
+                else begin
+                    pwm_counter <= 16'd0;
+                end
+
+                // Set output high for first half of period, low for second half
+                buzzer <= (pwm_counter < PWM_DUTY) ? 1'b1 : 1'b0;
+
+            end 
+            else begin
+                // Time up: Reset output
+                active           <= 1'b0;
+                duration_counter <= 27'd0;
+                pwm_counter      <= 16'd0;
+                buzzer           <= 1'b0;
+            end
+
+        end
+        else begin
+            buzzer <= 1'b0;
+        end
+    end
+end
+
+endmodule
