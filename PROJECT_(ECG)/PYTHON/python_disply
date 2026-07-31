@@ -1,0 +1,323 @@
+import matplotlib
+matplotlib.rcParams['toolbar'] = 'None'
+import serial
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
+from collections import deque
+import numpy as np
+from scipy.signal import butter, filtfilt, iirnotch
+import smtplib
+from email.message import EmailMessage
+import matplotlib.image as mpimg
+from datetime import datetime
+import os
+import time
+from matplotlib.ticker import MultipleLocator
+
+
+# -----------------------------
+# Patient Details
+# -----------------------------
+PATIENT_NAME = "Upesh Kumar"
+AGE = 20
+REG_NO = "REG-678902-67"
+
+SAVE_FOLDER = "ECG_Reports"
+os.makedirs(SAVE_FOLDER, exist_ok=True)
+
+# -----------------------------
+# UART Settings
+# -----------------------------
+PORT = "COM5"
+BAUD = 115200
+WINDOW =300
+
+# Open Serial Port
+ser = serial.Serial(PORT, BAUD, timeout=1)
+
+# ECG Buffer
+ecg = deque([0] * WINDOW, maxlen=WINDOW)
+
+sample_buffer = deque(maxlen=200)
+
+R_THRESHOLD = 1100      # Adjust according to your ECG
+sample_count = 0
+last_r_sample = -1000
+REFRACTORY =100          # 250 Hz -> about 240 ms
+# -----------------------------
+# PQRST Detection
+# -----------------------------
+def detect_pqrst():
+
+    global sample_count, last_r_sample
+
+    data = np.array(sample_buffer)
+
+    if len(data) < 100:
+        sample_count += 1
+        return
+
+    sample_count += 1
+
+    r_index = np.argmax(data)
+    r_value = data[r_index]
+
+    if r_value > R_THRESHOLD and (sample_count - last_r_sample) > REFRACTORY:
+
+        last_r_sample = sample_count
+
+        p_index = max(0, r_index - 40)
+        q_index = max(0, r_index - 10)
+        s_index = min(len(data)-1, r_index + 10)
+        t_index = min(len(data)-1, r_index + 50)
+
+        print("\n========== PQRST DETECTED ==========")
+        print(f"Sample : {sample_count}")
+        print(f"P : {data[p_index]}")
+        print(f"Q : {data[q_index]}")
+        print(f"R : {r_value}")
+        print(f"S : {data[s_index]}")
+        print(f"T : {data[t_index]}")
+        print("====================================")
+
+
+
+
+def filter_ecg(signal):
+
+    if len(signal) < 100:
+        return signal
+
+    fs = 250.0
+
+    # Remove baseline wander (0.5 Hz)
+    b1, a1 = butter(2, 0.5/(fs/2), btype='high')
+    signal = filtfilt(b1, a1, signal)
+
+    # Remove 50 Hz power-line noise
+    b2, a2 = iirnotch(50, 30, fs)
+    signal = filtfilt(b2, a2, signal)
+
+    # Low-pass filter (25 Hz)
+    b3, a3 = butter(4, 25/(fs/2), btype='low')
+    signal = filtfilt(b3, a3, signal)
+
+    # Moving average
+    signal = np.convolve(signal, np.ones(7)/7, mode='same')
+
+    return signal
+
+def send_email(filename):
+    try:
+        sender = "nayakupesh05@gmail.com"
+        password = "eaug uwuq djsu ekgz"
+        receiver = "nnm24ec189@nmamit.in"
+
+        msg = EmailMessage()
+        msg["Subject"] = "ECG Report"
+        msg["From"] = sender
+        msg["To"] = receiver
+        msg.set_content("ECG report attached.")
+
+        with open(filename, "rb") as f:
+            msg.add_attachment(
+                f.read(),
+                maintype="image",
+                subtype="png",
+                filename=os.path.basename(filename)
+            )
+
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=30) as smtp:
+            smtp.login(sender, password)
+            print("Login successful")
+            smtp.send_message(msg)
+            print("Email sent successfully!")
+            
+
+    except Exception as e:
+        print("Email Error:", e)
+        
+
+
+def save_plot():
+
+    fig.texts.clear()
+
+    current_date = datetime.now().strftime("%d-%m-%Y")
+    current_time = datetime.now().strftime("%H:%M:%S")
+
+    # Leave room for the header
+    fig.subplots_adjust(top=0.72, bottom=0.15)
+
+    # ---------- Logo ----------
+    logo = mpimg.imread(r"C:\Users\HP\Desktop\anmaya tecnolgies\logo.png.jpg")
+    logo_ax = fig.add_axes([0.80, 0.86, 0.16, 0.16])
+    logo_ax.imshow(logo)
+    logo_ax.axis("off")
+
+     # ---------- Logo ----------
+    logo = mpimg.imread(r"C:\Users\HP\Desktop\anmaya tecnolgies\logo1.jpg")
+    logo_ax = fig.add_axes([0.02, 0.86, 0.18, 0.18])
+    logo_ax.imshow(logo)
+    logo_ax.axis("off")
+
+
+
+
+    
+    # ---------- Hospital ----------
+    fig.text(
+        0.50, 0.95,
+        "ANMAYA TECHNOLOGIES HOSPITAL",
+        ha="center",
+        va="center",
+        fontsize=20,
+        fontweight="bold"
+    )
+
+    fig.text(
+        0.50, 0.91,
+        "MANIPAL, UDUPI",
+        ha="center",
+        va="center",
+        fontsize=16,
+        fontweight="bold"
+    )
+
+    # ---------- Patient Details ----------
+    fig.text(
+        0.02, 0.84,
+        f"Patient Name : {PATIENT_NAME}      Age : {AGE}",
+        fontsize=11,
+        fontweight="bold"
+    )
+
+    fig.text(
+        0.02, 0.80,
+        f"Registration No : {REG_NO}",
+        fontsize=11
+    )
+
+    # ---------- Date & Time ----------
+    fig.text(
+        0.02, 0.03,
+        f"Date : {current_date}      Time : {current_time}",
+        fontsize=10
+    )
+
+    filename = os.path.join(
+        SAVE_FOLDER,
+        f"{PATIENT_NAME}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+    )
+
+    fig.savefig(filename, dpi=300, bbox_inches="tight")
+
+    print("Screenshot saved:", filename)
+    
+
+    send_email(filename)
+    ser.write(b'E')
+    
+# -----------------------------
+# Plot
+# -----------------------------
+fig, ax = plt.subplots(figsize=(12, 7))
+
+# Leave space for hospital name and patient details
+fig.subplots_adjust(top=0.72, bottom=0.15)
+
+line, = ax.plot(range(WINDOW), ecg, lw=2, color='red')
+
+img = mpimg.imread("graph2.jpg")  # path to your cropped image
+
+
+# ---- Draw the image stretched to fill the exact plot area ----
+# extent = (xmin, xmax, ymin, ymax) — must match set_xlim/set_ylim above
+ax.imshow(img, extent=[-10, 512.5, -2150, 5040], aspect='auto', zorder=0)
+
+
+ax.set_title("Real-Time ECG from FPGA",color="maroon" ,fontsize=15, pad=20)
+ax.set_xlabel("Samples")
+ax.set_ylabel("")
+ax.set_xlim(0, WINDOW)
+ax.set_ylim(-2000, 4095)
+#ax.grid(True)
+
+# -----------------------------
+# Update Function
+# -----------------------------
+rx = []
+capture = ""
+
+def update(frame):
+    global capture, rx
+
+    while ser.in_waiting > 0:
+
+        b = ser.read(1)
+
+        if len(b) == 0:
+            continue
+
+        byte = b[0]
+
+        # -----------------------------
+        # Check for CAPTURE command
+        # -----------------------------
+        if 65 <= byte <= 90:
+
+            capture += chr(byte)
+            
+            
+
+            if capture.endswith("CAPTURE"):
+                print("Capture command received")
+                
+
+                detect_pqrst()
+                save_plot()
+
+                capture = ""
+
+            continue
+
+        # -----------------------------
+        # ECG data (2-byte sample)
+        # -----------------------------
+        rx.append(byte)
+
+        if len(rx) == 2:
+
+            high = rx[0]
+            low  = rx[1]
+
+            sample = ((high & 0x0F) << 8) | low
+
+            ecg.append(sample)
+            sample_buffer.append(sample)
+
+            # Print sample (optional)
+            
+
+            # Detect PQRST
+            detect_pqrst()
+
+            # Clear receive buffer
+            rx.clear()
+
+    # -----------------------------
+    # Update ECG graph
+    # -----------------------------
+    filtered = filter_ecg(np.array(ecg))
+    line.set_ydata(filtered)
+
+    return line,
+# Animation
+ani = FuncAnimation(fig, update, interval=0.5, cache_frame_data=False)
+
+plt.show()
+
+ser.close()
+
+
+
