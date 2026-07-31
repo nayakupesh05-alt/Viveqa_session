@@ -1,1 +1,20 @@
+module display_select (
+    input  wire clk,
+    input  wire rst,
+    input  wire btn_time,   // Clean pulse from db_time
+    input  wire btn_date,   // Clean pulse from db_date
+    output reg  show_date   // 0 = TIME (HH:MM), 1 = DATE (DD:MM)
+);
 
+    always @(posedge clk) begin
+        if (rst) begin
+            show_date <= 1'b0; // Default to Time mode on reset
+        end else begin
+            if (btn_date)
+                show_date <= 1'b1; // Switch to Date
+            else if (btn_time)
+                show_date <= 1'b0; // Switch to Time
+        end
+    end
+
+endmodule
