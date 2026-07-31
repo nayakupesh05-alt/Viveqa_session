@@ -1,1 +1,35 @@
+module button_press(
+    input clk,
+    input rst,
+    input btn,
+    output reg btn_pulse
+);
 
+reg btn_d;
+reg rst_done;
+
+always @(posedge clk or posedge rst)
+begin
+    if (rst) begin
+        btn_d     <= btn;      // Store current button state
+        btn_pulse <= 1'b0;
+        rst_done  <= 1'b0;
+    end
+    else begin
+        btn_pulse <= 1'b0;
+
+        // Ignore the first clock after reset
+        if (!rst_done) begin
+            rst_done <= 1'b1;
+            btn_d    <= btn;
+        end
+        else begin
+            if ((btn_d == 1'b1) && (btn == 1'b0))
+                btn_pulse <= 1'b1;
+
+            btn_d <= btn;
+        end
+    end
+end
+
+endmodule
