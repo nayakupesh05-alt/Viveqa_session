@@ -1,1 +1,269 @@
+module lcd_driver(
+    input wire clk_24mhz,
+    input wire rst,
 
+    input wire [2:0] lcd_mode,
+
+    input wire [7:0] hour1, hour2,
+    input wire [7:0] min1,  min2,
+    input wire [7:0] sec1,  sec2,
+
+    output reg lcd_rs,
+    output reg lcd_rw,
+    output reg lcd_en,
+    output reg [7:0] lcd_d
+);
+
+parameter WELCOME    = 3'd0;
+parameter CLOCK      = 3'd1;
+parameter CAPTURE    = 3'd2;
+parameter IMAGE      = 3'd3;
+parameter EMAIL      = 3'd4;
+parameter EMAIL_FAIL = 3'd5;
+
+//======================================================
+// Scrolling message-2 ROM: "ANMAYA HOSPITAL AND TECHNOLOGY, MANIPAL UDUPI"
+// 16 spaces padding + 45 chars text + 16 spaces padding = 77 slots
+//======================================================
+localparam LEAD_PAD    = 16;
+localparam MSG2_LEN    = 45;
+localparam MSG2_TOTAL  = LEAD_PAD + MSG2_LEN + 16; // 77
+localparam MSG2_MAXPOS = MSG2_TOTAL - 16;          // 61 (last valid window start)
+localparam SCROLL_WAIT_MAX = 8'd0; // 0 = very fast scroll (no extra wait between shifts)
+
+function [7:0] get_msg2_char;
+    input [6:0] idx; // padded index 0..76
+    begin
+        case (idx)
+            16: get_msg2_char = "A";
+            17: get_msg2_char = "N";
+            18: get_msg2_char = "M";
+            19: get_msg2_char = "A";
+            20: get_msg2_char = "Y";
+            21: get_msg2_char = "A";
+            22: get_msg2_char = " ";
+            23: get_msg2_char = "H";
+            24: get_msg2_char = "O";
+            25: get_msg2_char = "S";
+            26: get_msg2_char = "P";
+            27: get_msg2_char = "I";
+            28: get_msg2_char = "T";
+            29: get_msg2_char = "A";
+            30: get_msg2_char = "L";
+            31: get_msg2_char = " ";
+            32: get_msg2_char = "A";
+            33: get_msg2_char = "N";
+            34: get_msg2_char = "D";
+            35: get_msg2_char = " ";
+            36: get_msg2_char = "T";
+            37: get_msg2_char = "E";
+            38: get_msg2_char = "C";
+            39: get_msg2_char = "H";
+            40: get_msg2_char = "N";
+            41: get_msg2_char = "O";
+            42: get_msg2_char = "L";
+            43: get_msg2_char = "O";
+            44: get_msg2_char = "G";
+            45: get_msg2_char = "Y";
+            46: get_msg2_char = ",";
+            47: get_msg2_char = " ";
+            48: get_msg2_char = "M";
+            49: get_msg2_char = "A";
+            50: get_msg2_char = "N";
+            51: get_msg2_char = "I";
+            52: get_msg2_char = "P";
+            53: get_msg2_char = "A";
+            54: get_msg2_char = "L";
+            55: get_msg2_char = " ";
+            56: get_msg2_char = "U";
+            57: get_msg2_char = "D";
+            58: get_msg2_char = "U";
+            59: get_msg2_char = "P";
+            60: get_msg2_char = "I";
+            default: get_msg2_char = " "; // covers lead pad (0-15) and trail pad (61-76)
+        endcase
+    end
+endfunction
+
+//======================================================
+// LCD DRIVER
+//======================================================
+
+reg [23:0] lcd_delay = 0;
+reg [8:0]  lcd_state = 0;
+reg [6:0]  scroll_pos      = 16'd0; // scroll window start (line 2 only)
+reg [7:0]  scroll_wait_cnt = 0;
+
+always @(posedge clk_24mhz)
+begin
+    lcd_delay <= lcd_delay + 1;
+
+    if (lcd_delay == 24'd100_000) begin
+        lcd_delay <= 0;
+
+        case (lcd_state)
+
+        // ---- Function Set ----
+        0: begin lcd_rs<=0; lcd_rw<=0; lcd_d<=8'h38; lcd_en<=1; lcd_state<=1; end
+        1: begin lcd_en<=0; lcd_state<=2; end
+
+        // ---- Display ON ----
+        2: begin lcd_rs<=0; lcd_rw<=0; lcd_d<=8'h0C; lcd_en<=1; lcd_state<=3; end
+        3: begin lcd_en<=0; lcd_state<=4; end
+
+        // ---- Entry Mode ----
+        4: begin lcd_rs<=0; lcd_rw<=0; lcd_d<=8'h06; lcd_en<=1; lcd_state<=5; end
+        5: begin lcd_en<=0; lcd_state<=6; end
+
+        // ---- Clear Display ----
+        6: begin lcd_rs<=0; lcd_rw<=0; lcd_d<=8'h01; lcd_en<=1; lcd_state<=7; end
+        7: begin lcd_en<=0; lcd_state<=8; end
+
+        // ---- Cursor Line-1 ----
+        8: begin lcd_rs<=0; lcd_rw<=0; lcd_d<=8'h80; lcd_en<=1; lcd_state<=9; end
+        9: begin lcd_en<=0; lcd_state<=10; end
+
+        //----------------------------------------
+        // Select which message to display
+        //----------------------------------------
+        10: begin lcd_rs<=0; lcd_rw<=0; lcd_d<=8'h80; lcd_en<=1; lcd_state<=11; end
+
+        11: begin
+            lcd_en <= 0;
+            case (lcd_mode)
+                WELCOME:    lcd_state <= 20;
+                CLOCK:      lcd_state <= 100;
+                CAPTURE:    lcd_state <= 180;
+                IMAGE:      lcd_state <= 260;
+                EMAIL:      lcd_state <= 340;
+                EMAIL_FAIL: lcd_state <= 420;
+                default:    lcd_state <= 20;
+            endcase
+        end
+
+        //============================
+        // WELCOME -> Line 1 = "   WELCOME TO  " (centered, 16 chars)
+        //============================
+        20: begin lcd_rs<=1; lcd_rw<=0; lcd_d<=" "; lcd_en<=1; lcd_state<=21; end
+        21: begin lcd_en<=0; lcd_state<=22; end
+
+        22: begin lcd_rs<=1; lcd_d<=" "; lcd_en<=1; lcd_state<=23; end
+        23: begin lcd_en<=0; lcd_state<=24; end
+
+        24: begin lcd_rs<=1; lcd_d<=" "; lcd_en<=1; lcd_state<=25; end
+        25: begin lcd_en<=0; lcd_state<=26; end
+
+        26: begin lcd_rs<=1; lcd_d<="W"; lcd_en<=1; lcd_state<=27; end
+        27: begin lcd_en<=0; lcd_state<=28; end
+
+        28: begin lcd_rs<=1; lcd_d<="E"; lcd_en<=1; lcd_state<=29; end
+        29: begin lcd_en<=0; lcd_state<=30; end
+
+        30: begin lcd_rs<=1; lcd_d<="L"; lcd_en<=1; lcd_state<=31; end
+        31: begin lcd_en<=0; lcd_state<=33; end
+
+        33: begin lcd_rs<=1; lcd_d<="C"; lcd_en<=1; lcd_state<=34; end
+        34: begin lcd_en<=0; lcd_state<=35; end
+
+        35: begin lcd_rs<=1; lcd_d<="O"; lcd_en<=1; lcd_state<=36; end
+        36: begin lcd_en<=0; lcd_state<=37; end
+
+        37: begin lcd_rs<=1; lcd_d<="M"; lcd_en<=1; lcd_state<=38; end
+        38: begin lcd_en<=0; lcd_state<=39; end
+
+        39: begin lcd_rs<=1; lcd_d<="E"; lcd_en<=1; lcd_state<=40; end
+        40: begin lcd_en<=0; lcd_state<=41; end
+
+        41: begin lcd_rs<=1; lcd_d<=" "; lcd_en<=1; lcd_state<=42; end
+        42: begin lcd_en<=0; lcd_state<=43; end
+
+        43: begin lcd_rs<=1; lcd_d<="T"; lcd_en<=1; lcd_state<=44; end
+        44: begin lcd_en<=0; lcd_state<=45; end
+
+        45: begin lcd_rs<=1; lcd_d<="O"; lcd_en<=1; lcd_state<=46; end
+        46: begin lcd_en<=0; lcd_state<=47; end
+
+        47: begin lcd_rs<=1; lcd_d<=" "; lcd_en<=1; lcd_state<=48; end
+        48: begin lcd_en<=0; lcd_state<=49; end
+
+        49: begin lcd_rs<=1; lcd_d<=" "; lcd_en<=1; lcd_state<=50; end
+        50: begin lcd_en<=0; lcd_state<=51; end
+
+        51: begin lcd_rs<=1; lcd_d<=" "; lcd_en<=1; lcd_state<=52; end
+        52: begin lcd_en<=0; lcd_state<=53; end
+
+        //----------------------------------------
+        // Line 2 cursor set (0xC0) - re-entered every scroll step
+        //----------------------------------------
+        53: begin lcd_rs<=0; lcd_rw<=0; lcd_d<=8'hC0; lcd_en<=1; lcd_state<=54; end
+        54: begin lcd_en<=0; lcd_state<=55; end
+
+        //----------------------------------------
+        // Line 2: 16-char scrolling window, starting at scroll_pos
+        //----------------------------------------
+        55: begin lcd_rs<=1; lcd_d<=get_msg2_char(scroll_pos+7'd0);  lcd_en<=1; lcd_state<=56; end
+        56: begin lcd_en<=0; lcd_state<=57; end
+        57: begin lcd_rs<=1; lcd_d<=get_msg2_char(scroll_pos+7'd1);  lcd_en<=1; lcd_state<=58; end
+        58: begin lcd_en<=0; lcd_state<=59; end
+        59: begin lcd_rs<=1; lcd_d<=get_msg2_char(scroll_pos+7'd2);  lcd_en<=1; lcd_state<=60; end
+        60: begin lcd_en<=0; lcd_state<=61; end
+        61: begin lcd_rs<=1; lcd_d<=get_msg2_char(scroll_pos+7'd3);  lcd_en<=1; lcd_state<=62; end
+        62: begin lcd_en<=0; lcd_state<=63; end
+        63: begin lcd_rs<=1; lcd_d<=get_msg2_char(scroll_pos+7'd4);  lcd_en<=1; lcd_state<=64; end
+        64: begin lcd_en<=0; lcd_state<=65; end
+        65: begin lcd_rs<=1; lcd_d<=get_msg2_char(scroll_pos+7'd5);  lcd_en<=1; lcd_state<=66; end
+        66: begin lcd_en<=0; lcd_state<=67; end
+        67: begin lcd_rs<=1; lcd_d<=get_msg2_char(scroll_pos+7'd6);  lcd_en<=1; lcd_state<=68; end
+        68: begin lcd_en<=0; lcd_state<=69; end
+        69: begin lcd_rs<=1; lcd_d<=get_msg2_char(scroll_pos+7'd7);  lcd_en<=1; lcd_state<=70; end
+        70: begin lcd_en<=0; lcd_state<=71; end
+        71: begin lcd_rs<=1; lcd_d<=get_msg2_char(scroll_pos+7'd8);  lcd_en<=1; lcd_state<=72; end
+        72: begin lcd_en<=0; lcd_state<=73; end
+        73: begin lcd_rs<=1; lcd_d<=get_msg2_char(scroll_pos+7'd9);  lcd_en<=1; lcd_state<=74; end
+        74: begin lcd_en<=0; lcd_state<=75; end
+        75: begin lcd_rs<=1; lcd_d<=get_msg2_char(scroll_pos+7'd10); lcd_en<=1; lcd_state<=76; end
+        76: begin lcd_en<=0; lcd_state<=77; end
+        77: begin lcd_rs<=1; lcd_d<=get_msg2_char(scroll_pos+7'd11); lcd_en<=1; lcd_state<=78; end
+        78: begin lcd_en<=0; lcd_state<=79; end
+        79: begin lcd_rs<=1; lcd_d<=get_msg2_char(scroll_pos+7'd12); lcd_en<=1; lcd_state<=80; end
+        80: begin lcd_en<=0; lcd_state<=81; end
+        81: begin lcd_rs<=1; lcd_d<=get_msg2_char(scroll_pos+7'd13); lcd_en<=1; lcd_state<=82; end
+        82: begin lcd_en<=0; lcd_state<=83; end
+        83: begin lcd_rs<=1; lcd_d<=get_msg2_char(scroll_pos+7'd14); lcd_en<=1; lcd_state<=84; end
+        84: begin lcd_en<=0; lcd_state<=85; end
+        85: begin lcd_rs<=1; lcd_d<=get_msg2_char(scroll_pos+7'd15); lcd_en<=1; lcd_state<=86; end
+        86: begin lcd_en<=0; lcd_state<=87; end
+
+        //----------------------------------------
+        // Scroll timing + position update (line 2 only, line 1 untouched)
+        // Right-to-left fast scroll: scroll_pos increments each step
+        //----------------------------------------
+        87: begin
+            if (scroll_wait_cnt == SCROLL_WAIT_MAX) begin
+                scroll_wait_cnt <= 0;
+                if (lcd_mode != WELCOME) begin
+                    lcd_state <= 10; // mode changed, go re-check / switch screen
+                end else begin
+                    if (scroll_pos == MSG2_MAXPOS[6:0])
+                        scroll_pos <= 7'd0;
+                    else
+                        scroll_pos <= scroll_pos + 7'd1;
+                    lcd_state <= 53; // rewrite line 2 only
+                end
+            end else begin
+                scroll_wait_cnt <= scroll_wait_cnt + 1;
+            end
+        end
+
+        //============================
+        // ---- PASTE YOUR EXISTING CLOCK (100), CAPTURE (180),
+        //      IMAGE (260), EMAIL (340), EMAIL_FAIL (420) BLOCKS HERE, UNCHANGED ----
+        //============================
+
+        default: lcd_state <= 20;
+
+        endcase
+    end
+end
+
+endmodule
