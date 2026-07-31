@@ -1,1 +1,79 @@
+module noise_led_driver #(
+    parameter DATA_WIDTH      = 8,                    // 8-bit input samples (0-255)
+    parameter WINDOW_CYCLES   = 24_000_000/20,         // 50ms window at 24 MHz clock
 
+    // 6 thresholds -> 7 possible states (0 to 7 LEDs lit)
+    parameter TH1 = 8'd20,   // >= TH1 -> 1 LED
+    parameter TH2 = 8'd35,   // >= TH2 -> 2 LEDs
+    parameter TH3 = 8'd50,   // >= TH3 -> 3 LEDs
+    parameter TH4 = 8'd65,   // >= TH4 -> 4 LEDs
+    parameter TH5 = 8'd80,   // >= TH5 -> 5 LEDs
+    parameter TH6 = 8'd95    // >= TH6 -> 6 LEDs (7th LED handled separately below)
+)(
+    input  wire                  clk,
+    input  wire                  rst,
+    input  wire [DATA_WIDTH-1:0] adc_sample,   // Incoming digital sample (e.g. from ADC)
+    input  wire                  sample_valid, // Pulse when a new sample is ready
+    output reg  [6:0]            leds          // 7 LEDs output (Active High), bar-graph style
+);
+
+    reg [23:0]           window_cnt = 0;
+    reg [DATA_WIDTH-1:0] max_val     = 0;
+    reg [DATA_WIDTH-1:0] min_val     = {DATA_WIDTH{1'b1}}; // Init to max value (8'hFF)
+
+    reg [DATA_WIDTH-1:0] noise_level = 0;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            window_cnt  <= 0;
+            max_val     <= 0;
+            min_val     <= {DATA_WIDTH{1'b1}};
+            noise_level <= 0;
+            leds        <= 7'b0000000; // Default: all off at reset
+        end else begin
+
+            // 1. Track Min and Max when a new sample arrives
+            if (sample_valid) begin
+                if (adc_sample > max_val)
+                    max_val <= adc_sample;
+                if (adc_sample < min_val)
+                    min_val <= adc_sample;
+            end
+
+            // 2. Sample Window Timer
+            if (window_cnt >= WINDOW_CYCLES) begin
+                window_cnt <= 0;
+
+                // Calculate Peak-to-Peak Noise
+                noise_level <= max_val - min_val;
+
+                // Reset Min/Max for the next window
+                max_val <= 0;
+                min_val <= {DATA_WIDTH{1'b1}};
+
+            end else begin
+                window_cnt <= window_cnt + 1'b1;
+            end
+
+            // 3. LED Bar Indicator Output (7 graduated states)
+            if (noise_level >= TH6)
+                leds <= 7'b1111111; // Highest -> 7 LEDs
+            else if (noise_level >= TH5)
+                leds <= 7'b0111111; // 6 LEDs
+            else if (noise_level >= TH4)
+                leds <= 7'b0011111; // 5 LEDs
+            else if (noise_level >= TH3)
+                leds <= 7'b0001111; // 4 LEDs
+            else if (noise_level >= TH2)
+                leds <= 7'b0000111; // 3 LEDs
+            else if (noise_level >= TH1)
+                leds <= 7'b0000011; // 2 LEDs
+            else if (noise_level > 0)
+                leds <= 7'b0000001; // 1 LED (any noise at all)
+            else
+                leds <= 7'b0000000; // No noise -> all off
+
+        end
+    end
+
+endmodule
