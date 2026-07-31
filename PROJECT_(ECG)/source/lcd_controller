@@ -1,1 +1,37 @@
+module lcd_message_controller(
+    input  wire clk,
+    input  wire rst,
 
+    input  wire [7:0] rx_data,
+    input  wire       rx_done,
+
+    output reg  [2:0] lcd_mode,
+    output reg        buzzer_on   // NEW: high only when 'E' is received
+);
+
+parameter WELCOME    = 3'd0;
+parameter CLOCK      = 3'd1;
+parameter CAPTURE    = 3'd2;
+parameter IMAGE      = 3'd3;
+parameter EMAIL      = 3'd4;
+parameter EMAIL_FAIL = 3'd5;
+
+always @(posedge clk or posedge rst) begin
+    if (rst) begin
+        lcd_mode  <= WELCOME;
+        buzzer_on <= 1'b0;
+    end
+    else if (rx_done) begin
+        case (rx_data)
+            "W": begin lcd_mode <= WELCOME;    buzzer_on <= 1'b0; end
+            "T": begin lcd_mode <= CLOCK;      buzzer_on <= 1'b0; end
+            "C": begin lcd_mode <= CAPTURE;    buzzer_on <= 1'b0; end
+            "I": begin lcd_mode <= IMAGE;      buzzer_on <= 1'b0; end
+            "E": begin lcd_mode <= EMAIL;      buzzer_on <= 1'b1; end // buzzer ON only on 'E'
+            "X": begin lcd_mode <= EMAIL_FAIL; buzzer_on <= 1'b0; end
+            default: lcd_mode <= lcd_mode;
+        endcase
+    end
+end
+
+endmodule
