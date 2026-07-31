@@ -1,1 +1,91 @@
+module uart_controller(
+    input clk,
+    input rst,
+    input [11:0] ecg_data,
 
+    output reg tx_start,
+    output reg [7:0] tx_data,
+input data_valid,
+    input tx_busy,
+    input tx_done
+);
+
+reg [11:0] sample_reg;
+reg [2:0] state;
+
+localparam WAIT_SAMPLE   = 3'd0,
+           SEND_HIGH     = 3'd1,
+           WAIT_HIGH     = 3'd2,
+           SEND_LOW      = 3'd3,
+           WAIT_LOW      = 3'd4;
+
+always @(posedge clk or posedge rst)
+begin
+    if(rst)
+    begin
+        tx_start    <= 1'b0;
+        tx_data     <= 8'd0;
+      
+        state       <= WAIT_SAMPLE;
+    end
+    else
+    begin
+        tx_start <= 1'b0;
+
+        case(state)
+
+        // Wait for next ECG sample
+   WAIT_SAMPLE:
+        begin
+            tx_start <= 1'b0;
+        
+            if(data_valid && !tx_busy)
+            begin
+                sample_reg <= ecg_data;      // Store one ADC sample
+                state <= SEND_HIGH;
+            end
+        end
+        // Send upper nibble
+      SEND_HIGH:
+        begin
+            if(!tx_busy)
+            begin
+                tx_data  <= {4'b0000, sample_reg[11:8]};
+                tx_start <= 1'b1;
+                state    <= WAIT_HIGH;
+            end
+        end
+        
+        WAIT_HIGH:
+        begin
+            tx_start <= 1'b0;
+        
+            if(tx_done)
+                state <= SEND_LOW;
+        end
+        
+        SEND_LOW:
+        begin
+            if(!tx_busy)
+            begin
+                tx_data  <= sample_reg[7:0];
+                tx_start <= 1'b1;
+                state    <= WAIT_LOW;
+            end
+        end
+        
+        WAIT_LOW:
+        begin
+            tx_start <= 1'b0;
+        
+            if(tx_done)
+                state <= WAIT_SAMPLE;
+        end
+        default:
+            state <= WAIT_SAMPLE;
+
+        endcase
+    end
+end
+
+endmodule
